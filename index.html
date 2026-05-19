@@ -3,20 +3,58 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>德州扑克桌</title>
+    <title>Texas Hold'em — Multiplayer</title>
     <link rel="stylesheet" href="styles.css" />
+    <script src="peerjs.min.js" defer></script>
+    <script src="game.js" defer></script>
   </head>
   <body>
-    <main class="app-shell">
-      <section class="hero-bar" aria-label="游戏状态">
+    <!-- LOBBY / JOIN SCREEN -->
+    <div id="lobby" class="lobby-overlay">
+      <div class="lobby-card">
+        <h1>Texas Hold'em</h1>
+        <p class="subtitle">Multiplayer 德州扑克 · 8 人同乐</p>
+
+        <div class="lobby-tabs">
+          <button class="tab active" data-tab="create">创建房间</button>
+          <button class="tab" data-tab="join">加入房间</button>
+        </div>
+
+        <!-- Create -->
+        <div id="createPanel" class="lobby-panel active">
+          <input type="text" id="nameInputCreate" placeholder="你的名字" maxlength="12" />
+          <button id="createRoomBtn" class="primary-btn">创建房间并开始</button>
+        </div>
+
+        <!-- Join -->
+        <div id="joinPanel" class="lobby-panel">
+          <input type="text" id="nameInputJoin" placeholder="你的名字" maxlength="12" />
+          <input type="text" id="roomIdInput" placeholder="房间号（6位大写字母数字）" maxlength="8" />
+          <button id="joinRoomBtn" class="primary-btn">加入房间</button>
+        </div>
+
+        <p id="lobbyMessage" style="margin:16px 0 0;color:var(--muted);font-size:0.85rem;">创建或加入房间开始游戏</p>
+      </div>
+    </div>
+
+    <!-- GAME UI -->
+    <div id="gameUI" class="app-shell hidden">
+      <!-- Hero Bar -->
+      <header class="hero-bar">
         <div>
           <p class="eyebrow">Texas Hold'em</p>
           <h1>德州扑克桌</h1>
         </div>
+        <div class="room-info">
+          <span class="room-id-label">房间</span>
+          <strong id="roomIdDisplay">---</strong>
+          <button id="copyRoomBtn" title="复制房间链接">&#x1F4CB;</button>
+          <span id="connectionStatus" class="status-dot connected" title="连接状态"></span>
+        </div>
         <div class="stats-grid">
           <div class="stat">
             <span>局数</span>
-            <strong id="handNumber">1</strong>
+            <strong id="handNumber">0</strong>
           </div>
           <div class="stat">
             <span>底池</span>
@@ -24,46 +62,46 @@
           </div>
           <div class="stat">
             <span>阶段</span>
-            <strong id="phaseName">准备</strong>
+            <strong id="phaseName">等待中</strong>
           </div>
         </div>
-      </section>
+      </header>
 
+      <!-- Poker Table -->
       <section class="table-wrap" aria-label="牌桌">
         <div class="table-glow"></div>
-        <div class="poker-table">
-          <div class="seat seat-top" id="bot-1"></div>
-          <div class="seat seat-left" id="bot-2"></div>
-          <div class="seat seat-right" id="bot-3"></div>
-
+        <div class="poker-table" id="pokerTable">
           <div class="center-stage">
             <div class="pot-chip">
               <span>底池</span>
               <strong id="centerPot">0</strong>
             </div>
             <div class="community" id="communityCards" aria-label="公共牌"></div>
-            <div class="message" id="message">准备开局</div>
+            <div class="message" id="message">加载中…</div>
           </div>
-
-          <div class="seat player-seat" id="player"></div>
         </div>
       </section>
 
+      <!-- Action Panel -->
       <section class="control-panel" aria-label="操作区">
         <div class="result-strip">
-          <span id="playerBest">当前牌型：等待发牌</span>
-          <span id="countdown"></span>
+          <span id="handInfo">等待发牌</span>
+          <span id="actionTimer"></span>
         </div>
-        <div class="actions">
-          <button id="dealBtn" type="button">开始新局</button>
-          <button id="checkBtn" type="button">过牌 / 跟注</button>
-          <button id="raiseBtn" type="button">加注 20</button>
-          <button id="foldBtn" type="button">弃牌</button>
+        <div class="actions" id="actionPanel">
+          <button id="startBtn" class="action-btn accent">开始游戏</button>
+          <button id="nextHandBtn" class="action-btn accent hidden">下一局</button>
+          <button id="foldBtn" class="action-btn danger hidden">弃牌</button>
+          <button id="checkBtn" class="action-btn hidden">过牌</button>
+          <button id="callBtn" class="action-btn hidden">跟注</button>
+          <div id="raiseArea" class="raise-area hidden">
+            <input type="range" id="raiseSlider" min="20" max="1000" step="10" />
+            <button id="raiseBtn" class="action-btn">加注到 <span id="raiseAmount">20</span></button>
+          </div>
+          <button id="allInBtn" class="action-btn danger hidden">All-in</button>
         </div>
-        <ol class="event-log" id="eventLog" aria-label="牌局记录"></ol>
+        <ol class="event-log" id="eventLog"></ol>
       </section>
-    </main>
-
-    <script src="game.js"></script>
+    </div>
   </body>
 </html>
