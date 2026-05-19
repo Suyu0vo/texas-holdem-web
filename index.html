@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>德州扑克桌</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero-bar" aria-label="游戏状态">
+        <div>
+          <p class="eyebrow">Texas Hold'em</p>
+          <h1>德州扑克桌</h1>
+        </div>
+        <div class="stats-grid">
+          <div class="stat">
+            <span>局数</span>
+            <strong id="handNumber">1</strong>
+          </div>
+          <div class="stat">
+            <span>底池</span>
+            <strong id="potValue">0</strong>
+          </div>
+          <div class="stat">
+            <span>阶段</span>
+            <strong id="phaseName">准备</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="table-wrap" aria-label="牌桌">
+        <div class="table-glow"></div>
+        <div class="poker-table">
+          <div class="seat seat-top" id="bot-1"></div>
+          <div class="seat seat-left" id="bot-2"></div>
+          <div class="seat seat-right" id="bot-3"></div>
+
+          <div class="center-stage">
+            <div class="pot-chip">
+              <span>底池</span>
+              <strong id="centerPot">0</strong>
+            </div>
+            <div class="community" id="communityCards" aria-label="公共牌"></div>
+            <div class="message" id="message">准备开局</div>
+          </div>
+
+          <div class="seat player-seat" id="player"></div>
+        </div>
+      </section>
+
+      <section class="control-panel" aria-label="操作区">
+        <div class="result-strip">
+          <span id="playerBest">当前牌型：等待发牌</span>
+          <span id="countdown"></span>
+        </div>
+        <div class="actions">
+          <button id="dealBtn" type="button">开始新局</button>
+          <button id="checkBtn" type="button">过牌 / 跟注</button>
+          <button id="raiseBtn" type="button">加注 20</button>
+          <button id="foldBtn" type="button">弃牌</button>
+        </div>
+        <ol class="event-log" id="eventLog" aria-label="牌局记录"></ol>
+      </section>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>
