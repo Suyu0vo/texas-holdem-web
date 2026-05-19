@@ -49,6 +49,7 @@
           <span class="room-id-label">房间</span>
           <strong id="roomIdDisplay">---</strong>
           <button id="copyRoomBtn" title="复制房间链接">&#x1F4CB;</button>
+          <button id="settingsBtn" class="icon-btn hidden" title="游戏设置">&#x2699;</button>
           <span id="connectionStatus" class="status-dot connected" title="连接状态"></span>
         </div>
         <div class="stats-grid">
@@ -63,6 +64,10 @@
           <div class="stat">
             <span>阶段</span>
             <strong id="phaseName">等待中</strong>
+          </div>
+          <div class="stat">
+            <span>盲注</span>
+            <strong id="blindsDisplay">10/20</strong>
           </div>
         </div>
       </header>
@@ -99,9 +104,36 @@
             <button id="raiseBtn" class="action-btn">加注到 <span id="raiseAmount">20</span></button>
           </div>
           <button id="allInBtn" class="action-btn danger hidden">All-in</button>
+          <button id="rebuyBtn" class="action-btn accent hidden">&#x267B; 买入筹码</button>
         </div>
         <ol class="event-log" id="eventLog"></ol>
       </section>
+    </div>
+
+    <!-- SETTINGS PANEL (host only) -->
+    <div id="settingsPanel" class="settings-overlay hidden">
+      <div class="settings-card">
+        <div class="settings-header">
+          <h3>游戏设置</h3>
+          <button id="closeSettingsPanel" class="settings-close">&times;</button>
+        </div>
+        <div class="settings-body">
+          <label class="settings-field">
+            <span>小盲</span>
+            <input type="number" id="sbSetting" min="2" max="500" value="10" />
+          </label>
+          <label class="settings-field">
+            <span>大盲</span>
+            <input type="number" id="bbSetting" min="4" max="5000" value="20" />
+          </label>
+          <label class="settings-field">
+            <span>买入筹码</span>
+            <input type="number" id="rebuySetting" min="20" max="100000" step="100" value="1000" />
+          </label>
+        </div>
+        <p id="settingsError" class="settings-error hidden">验证错误</p>
+        <button id="applySettings" class="primary-btn">应用设置</button>
+      </div>
     </div>
   </body>
 </html>

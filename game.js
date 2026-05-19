@@ -44,8 +44,6 @@ const PHASE_NAMES = {
   showdown: '摊牌',
 };
 
-const BB = 20;
-const SB = 10;
 const MAX_PLAYERS = 8;
 const TURN_TIMEOUT_MS = 60000;
 const AUTO_NEXT_HAND_DELAY = 5000;
@@ -103,6 +101,16 @@ const DOM = {
   allInBtn:     $('#allInBtn'),
   nextHandBtn:  $('#nextHandBtn'),
   actionPanel:  $('#actionPanel'),
+  settingsBtn:  $('#settingsBtn'),
+  settingsPanel: $('#settingsPanel'),
+  closeSettingsBtn: $('#closeSettingsPanel'),
+  sbSetting:    $('#sbSetting'),
+  bbSetting:    $('#bbSetting'),
+  rebuySetting: $('#rebuySetting'),
+  applySettingsBtn: $('#applySettings'),
+  settingsError: $('#settingsError'),
+  rebuyBtn:     $('#rebuyBtn'),
+  blindsDisplay: $('#blindsDisplay'),
 };
 
 // ==================== GAME STATE ====================
@@ -132,6 +140,10 @@ const G = {
   autoFoldTimer: null,    // setTimeout for auto-fold if player doesn't act
   autoNextHandTimer: null, // setTimeout for auto-advancing to next hand
   showdownHands: [],      // hands revealed at showdown
+  /* configurable settings */
+  smallBlind: 10,
+  bigBlind: 20,
+  rebuyAmount: 1000,
 };
 
 // ==================== CARD UTILITIES ====================
@@ -216,6 +228,12 @@ function describeValue(v) {
   return HAND_NAMES[v.rank] + ' ' + v.kickers.map(rankLabel).join(' ');
 }
 
+// ==================== UI HELPERS ====================
+function fmtChips(n) {
+  if (n == null) return '0';
+  return Number(n).toLocaleString('zh-CN');
+}
+
 // ==================== UI — TOGGLE PANELS ====================
 function showLobby() {
   DOM.lobby.classList.remove('hidden');
@@ -227,15 +245,74 @@ function showGame() {
   DOM.gameUI.classList.remove('hidden');
 }
 
+// ==================== UI — SETTINGS & REBUY ====================
+function toggleSettingsPanel() {
+  if (!G.isHost) return;
+  /* Settings can only be changed between hands (lobby phase) */
+  if (G.phase !== 'lobby') {
+    setMessage('只能在牌局间隙修改设置');
+    return;
+  }
+  DOM.settingsPanel.classList.toggle('hidden');
+  if (!DOM.settingsPanel.classList.contains('hidden')) {
+    DOM.sbSetting.value = G.smallBlind;
+    DOM.bbSetting.value = G.bigBlind;
+    DOM.rebuySetting.value = G.rebuyAmount;
+    DOM.settingsError.classList.add('hidden');
+  }
+}
+
+function showRebuyBtn() {
+  DOM.rebuyBtn.classList.remove('hidden');
+}
+
+function hideRebuyBtn() {
+  DOM.rebuyBtn.classList.add('hidden');
+}
+
+function updateRebuyBtn() {
+  const me = G.players.find((p) => p.id === G.mySeatId);
+  if (!me) { hideRebuyBtn(); return; }
+  /* Only show rebuy button between hands (lobby phase), not during active play */
+  if (G.phase === 'lobby' && me.chips < G.bigBlind) {
+    DOM.rebuyBtn.textContent = '♻ 买入 (花费 ' + G.rebuyAmount + ' 筹码)';
+    showRebuyBtn();
+  } else {
+    hideRebuyBtn();
+  }
+}
+
+function sendRebuyRequest() {
+  /* Rebuy is only allowed between hands (lobby phase) */
+  if (G.phase !== 'lobby') { setMessage('只能在牌局间隙买入筹码'); return; }
+  if (G.isHost) {
+    /* Host auto-approves own rebuy */
+    const me = G.players.find((p) => p.id === G.mySeatId);
+    if (!me) return;
+    me.chips += G.rebuyAmount;
+    me.rebuyCount = (me.rebuyCount || 0) + 1;
+    log('你已买入 ' + G.rebuyAmount + ' 筹码 (第' + me.rebuyCount + '次)');
+    broadcast({ type: 'state_sync', state: exportState() });
+    render();
+  } else {
+    sendToPeer({ type: 'rebuy_request', amount: G.rebuyAmount });
+    setMessage('已发送买入请求…');
+  }
+}
+
 // ==================== UI — RENDER ====================
 function render() {
   const p = G.players;
 
   /* Hero stats */
   DOM.handNumber.textContent = G.handNumber;
-  DOM.potValue.textContent = G.pot;
-  DOM.centerPot.textContent = G.pot;
+  DOM.potValue.textContent = fmtChips(G.pot);
+  DOM.centerPot.textContent = fmtChips(G.pot);
   DOM.phaseName.textContent = PHASE_NAMES[G.phase] || '准备';
+  /* Blinds display */
+  if (DOM.blindsDisplay) DOM.blindsDisplay.textContent = G.phase !== 'lobby' ? (G.smallBlind + '/' + G.bigBlind) : (G.smallBlind + '/' + G.bigBlind);
+  /* Settings button only for host */
+  if (DOM.settingsBtn) DOM.settingsBtn.classList.toggle('hidden', !G.isHost);
 
   /* Community cards */
   DOM.community.innerHTML = G.communityCards.map(cardHTML).join('');
@@ -277,13 +354,17 @@ function render() {
         <div class="seat-inner ${folded ? 'folded' : ''} ${isTurn ? 'turn-active' : ''} ${disconnected ? 'disconnected' : ''}">
           <div class="seat-header">
             <span class="seat-name">${disconnected ? pl.name + ' (已断线)' : pl.name}</span>
-            <span class="seat-badge ${isMe ? 'badge-you' : ''}">${folded ? '已弃牌' : allIn ? 'ALL-IN' : pl.chips}</span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span class="seat-badge ${isMe ? 'badge-you' : ''}">${folded ? '已弃牌' : allIn ? 'ALL-IN' : '♠ ' + fmtChips(pl.chips)}</span>
+              ${pl.rebuyCount > 0 ? `<span class="rebuy-badge">R${pl.rebuyCount}</span>` : ''}
+              ${pl.isHost ? '<span class="host-badge">房主</span>' : ''}
+            </div>
           </div>
           ${isDealer ? '<span class="dealer-chip">D</span>' : ''}
           <div class="cards mini-cards">
             ${showCards ? holeCards.map(cardHTML).join('') : (G.phase !== 'lobby' && !folded ? '<div class="card back"><div class="rank">&#9670;</div><div class="suit">&#9839;</div></div><div class="card back"><div class="rank">&#9670;</div><div class="suit">&#9839;</div></div>' : '')}
           </div>
-          ${pl.bet > 0 ? `<div class="bet-chip">${pl.bet}</div>` : ''}
+          ${pl.bet > 0 ? `<div class="bet-chip">${fmtChips(pl.bet)}</div>` : ''}
           ${isTurn ? '<div class="turn-arrow">&#9650;</div>' : ''}
         </div>
       `;
@@ -311,6 +392,7 @@ function render() {
   } else {
     DOM.handInfo.textContent = '等待发牌';
   }
+  updateRebuyBtn();
 }
 
 function cardHTML(card) {
@@ -320,6 +402,7 @@ function cardHTML(card) {
 // ==================== UI — ACTION BUTTONS ====================
 function showActions(list) {
   hideActions();
+  hideRebuyBtn();
   list.forEach((a) => {
     if (a === 'fold') DOM.foldBtn.classList.remove('hidden');
     if (a === 'check') DOM.checkBtn.classList.remove('hidden');
@@ -338,10 +421,11 @@ function hideActions() {
 }
 
 // ==================== UI — LOG & MESSAGE ====================
-function log(text, reset) {
+function log(text, reset, highlight) {
   if (reset) DOM.eventLog.innerHTML = '';
   const li = document.createElement('li');
   li.textContent = text;
+  if (highlight) li.style.color = 'var(--gold)';
   DOM.eventLog.prepend(li);
   while (DOM.eventLog.children.length > 12) DOM.eventLog.lastElementChild.remove();
 }
@@ -451,7 +535,7 @@ function hostCreateRoom(name) {
 }
 
 function makePlayer(id, name, isHost) {
-  return { id, name, chips: 1000, bet: 0, folded: false, allIn: false, connected: true, isHost, holeCards: [], totalBetHand: 0 };
+  return { id, name, chips: 1000, bet: 0, folded: false, allIn: false, connected: true, isHost, holeCards: [], totalBetHand: 0, rebuyCount: 0 };
 }
 
 function handleHostMessage(conn, data) {
@@ -462,6 +546,7 @@ function handleHostMessage(conn, data) {
 
   if (data.type === 'join') handleJoin(conn, data.name);
   else if (data.type === 'action') handlePlayerAction(conn, data);
+  else if (data.type === 'rebuy_request') handleRebuyRequest(conn, data);
 }
 
 function handleJoin(conn, name) {
@@ -520,6 +605,49 @@ function handleDisconnect(conn) {
       checkRoundEnd(-1);
     }
   }
+  broadcast({ type: 'state_sync', state: exportState() });
+  render();
+}
+
+// ==================== HOST — REBUY / SETTINGS ====================
+function handleRebuyRequest(conn, data) {
+  /* Rebuy is only allowed between hands; reject during active hand */
+  if (G.phase !== 'lobby') {
+    safeSend(conn, JSON.stringify({ type: 'rebuy_rejected', reason: '只能在牌局间隙买入' }));
+    return;
+  }
+  const idx = G.peerConns.indexOf(conn);
+  if (idx === -1) return;
+  const pl = G.players.find((p) => p.id === idx);
+  if (!pl) return;
+  /* Host-authoritative: use host's configured rebuy amount regardless of what client sends */
+  const amount = G.rebuyAmount;
+  pl.chips += amount;
+  pl.rebuyCount = (pl.rebuyCount || 0) + 1;
+  log(pl.name + ' 买入 ' + amount + ' 筹码 (第' + pl.rebuyCount + '次重置)');
+  setMessage(pl.name + ' 已买入 ' + amount);
+  safeSend(conn, JSON.stringify({ type: 'rebuy_approved', amount }));
+  broadcast({ type: 'state_sync', state: exportState() });
+  render();
+}
+
+function hostUpdateSettings(sb, bb, rebuy) {
+  if (!G.isHost) return;
+  /* Settings can only be changed between hands */
+  if (G.phase !== 'lobby') { setMessage('只能在牌局间隙修改设置'); return; }
+  /* Validation */
+  if (sb < 2) { setMessage('小盲不能低于 2'); return; }
+  if (sb > 500) { setMessage('小盲不能超过 500'); return; }
+  if (bb < sb * 2) { setMessage('大盲至少为小盲的2倍'); return; }
+  if (bb > 5000) { setMessage('大盲不能超过 5000'); return; }
+  if (rebuy < 20) { setMessage('买入筹码不能少于 20'); return; }
+  if (rebuy > 100000) { setMessage('买入筹码不能超过 100000'); return; }
+  G.smallBlind = sb;
+  G.bigBlind = bb;
+  G.rebuyAmount = rebuy;
+  log('房主更新了设置：小盲 ' + sb + '，大盲 ' + bb + '，买入 ' + rebuy);
+  setMessage('游戏设置已更新');
+  broadcast({ type: 'settings_updated', smallBlind: sb, bigBlind: bb, rebuyAmount: rebuy });
   broadcast({ type: 'state_sync', state: exportState() });
   render();
 }
@@ -638,7 +766,7 @@ function handleServerMsg(data) {
     DOM.startBtn.classList.add('hidden');
     if (G.isHost) DOM.nextHandBtn.classList.remove('hidden');
     setMessage(data.message || '本局结束');
-    log(data.message || '本局结束', false);
+    log(data.message || '本局结束', false, true);
     render();
   } else if (data.type === 'next_hand') {
     clearTurnTimers();
@@ -647,6 +775,21 @@ function handleServerMsg(data) {
     DOM.nextHandBtn.classList.add('hidden');
     /* If I'm the host, show start button again */
     if (G.isHost) DOM.startBtn.classList.remove('hidden');
+    render();
+  } else if (data.type === 'rebuy_approved') {
+    const me = G.players.find((p) => p.id === G.mySeatId);
+    if (me) me.chips += data.amount;
+    log('买入成功 +' + data.amount + ' 筹码');
+    setMessage('已补充筹码');
+    hideRebuyBtn();
+    render();
+  } else if (data.type === 'rebuy_rejected') {
+    setMessage(data.reason || '买入请求被拒绝');
+  } else if (data.type === 'settings_updated') {
+    G.smallBlind = data.smallBlind || G.smallBlind;
+    G.bigBlind = data.bigBlind || G.bigBlind;
+    G.rebuyAmount = data.rebuyAmount || G.rebuyAmount;
+    log('房主更新了游戏设置', false);
     render();
   } else if (data.type === 'error') {
     setMessage(data.message || '错误');
@@ -662,6 +805,9 @@ function applyState(st) {
   G.currentTurn = st.currentTurn != null ? st.currentTurn : G.currentTurn;
   G.communityCards = st.communityCards || [];
   G.lastRaiseSize = st.lastRaiseSize || 0;
+  if (st.smallBlind != null) G.smallBlind = st.smallBlind;
+  if (st.bigBlind != null) G.bigBlind = st.bigBlind;
+  if (st.rebuyAmount != null) G.rebuyAmount = st.rebuyAmount;
 
   if (st.players) {
     /* Merge incoming player state with existing (preserve hole cards locally) */
@@ -693,11 +839,14 @@ function exportState() {
     currentTurn: G.currentTurn,
     communityCards: G.communityCards,
     lastRaiseSize: G.lastRaiseSize,
+    smallBlind: G.smallBlind,
+    bigBlind: G.bigBlind,
+    rebuyAmount: G.rebuyAmount,
   };
 }
 
 function stripHole(pl) {
-  return { id: pl.id, name: pl.name, chips: pl.chips, bet: pl.bet, folded: pl.folded, allIn: pl.allIn, connected: pl.connected, isHost: pl.isHost, holeCards: [], totalBetHand: pl.totalBetHand || 0 };
+  return { id: pl.id, name: pl.name, chips: pl.chips, bet: pl.bet, folded: pl.folded, allIn: pl.allIn, connected: pl.connected, isHost: pl.isHost, holeCards: [], totalBetHand: pl.totalBetHand || 0, rebuyCount: pl.rebuyCount || 0 };
 }
 
 // ==================== UI — ACTION PANEL SETUP (client) ====================
@@ -720,7 +869,7 @@ function setupActionUI(data) {
   }
   if (actions.includes('raise')) {
     DOM.raiseArea.classList.remove('hidden');
-    const minR = minRaise || currentBet + BB;
+    const minR = minRaise || currentBet + G.bigBlind;
     const maxR = maxRaise || me.chips;
     DOM.raiseSlider.min = minR;
     DOM.raiseSlider.max = Math.max(minR + 1, maxR);
@@ -740,11 +889,21 @@ function setupActionUI(data) {
 // ==================== HOST GAME ENGINE ====================
 /* The host (seat 0) manages the full game state machine */
 
+function countPlayablePlayers() {
+  return G.players.filter((p) => p.connected && p.chips >= G.bigBlind).length;
+}
+
 function hostStartGame() {
   if (!G.isHost) return;
-  const active = G.players.filter((p) => p.connected);
-  if (active.length < 2) {
-    setMessage('至少需要 2 名玩家才能开始');
+
+  /* Fold disconnected and busted (zero-chip) players */
+  for (const pl of G.players) {
+    if (!pl.connected || pl.chips <= 0) pl.folded = true;
+  }
+
+  const playable = G.players.filter((p) => !p.folded && p.chips >= G.bigBlind).length;
+  if (playable < 2) {
+    setMessage('至少需要 2 名有足够筹码的玩家才能开始');
     return;
   }
 
@@ -760,9 +919,9 @@ function hostStartGame() {
   G.bigBlindId = -1;
   DOM.nextHandBtn.classList.add('hidden');
 
-  /* Reset all connected players */
+  /* Reset state — only playable players stay not folded */
   for (const pl of G.players) {
-    pl.folded = !pl.connected;
+    pl.folded = !pl.connected || pl.chips < G.bigBlind;
     pl.allIn = false;
     pl.holeCards = [];
     pl.bet = 0;
@@ -782,13 +941,13 @@ function hostStartGame() {
   const smallBlindPl = getNextActivePlayer(dealerIdx);
   const bigBlindPl = getNextActivePlayer(smallBlindPl ? smallBlindPl.id : dealerIdx);
 
-  if (smallBlindPl) postBet(smallBlindPl, Math.min(SB, smallBlindPl.chips));
-  if (bigBlindPl) postBet(bigBlindPl, Math.min(BB, bigBlindPl.chips));
+  if (smallBlindPl) postBet(smallBlindPl, Math.min(G.smallBlind, smallBlindPl.chips));
+  if (bigBlindPl) postBet(bigBlindPl, Math.min(G.bigBlind, bigBlindPl.chips));
   G.bigBlindId = bigBlindPl ? bigBlindPl.id : -1;
 
-  G.lastRaiseSize = BB;
+  G.lastRaiseSize = G.bigBlind;
 
-  log('第 ' + G.handNumber + ' 局开始，底注 ' + SB + '/' + BB, true);
+  log('第 ' + G.handNumber + ' 局开始，底注 ' + G.smallBlind + '/' + G.bigBlind, true);
   setMessage('新局开始，翻牌前');
 
   /* Send hole cards privately */
@@ -866,7 +1025,7 @@ function startTurn(playerId) {
   }
   /* Can raise if they have chips */
   if (pl.chips > 0 && activePlayerCount() >= 2) {
-    const minRaiseAmount = Math.max(G.lastRaiseSize || BB, BB);
+    const minRaiseAmount = Math.max(G.lastRaiseSize || G.bigBlind, G.bigBlind);
     if (toCall + minRaiseAmount <= pl.chips || toCall < pl.chips) {
       actions.push('raise');
     }
@@ -880,7 +1039,7 @@ function startTurn(playerId) {
   if (pl.id === 0) {
     /* Host's turn — show controls locally */
     G.waitingForAction = true;
-    const minRaise = Math.max(G.lastRaiseSize || BB, BB);
+    const minRaise = Math.max(G.lastRaiseSize || G.bigBlind, G.bigBlind);
     setupActionUI({
       actions,
       currentBet,
@@ -901,7 +1060,7 @@ function startTurn(playerId) {
       type: 'your_turn',
       actions,
       currentBet,
-      minRaise: currentBet + (toCall > 0 ? Math.max(G.lastRaiseSize || BB, BB) : BB),
+      minRaise: currentBet + (toCall > 0 ? Math.max(G.lastRaiseSize || G.bigBlind, G.bigBlind) : G.bigBlind),
       maxRaise: pl.chips,
       pot: G.pot,
     });
@@ -952,7 +1111,7 @@ function applyAction(playerId, action, amount) {
     case 'raise':
       if (amount !== undefined && amount > 0) {
         /* Floor to legal min-raise (defensive: reject non-host or crafted input) */
-        const minRaiseAmt = Math.max(G.lastRaiseSize || BB, BB);
+        const minRaiseAmt = Math.max(G.lastRaiseSize || G.bigBlind, G.bigBlind);
         const minTotal = currentBet + minRaiseAmt;
         let raiseTotal = Math.max(amount, minTotal);
         /* Cap at what the player can actually put in */
@@ -1097,7 +1256,7 @@ function hostShowdown() {
   const handDesc = describeValue(best);
   const result = winners.length > 1 ? names + ' 平分底池' : names + ' 赢得底池';
   const msg = '摊牌：' + result + '，牌型 ' + handDesc;
-  log(msg);
+  log(msg, false, true);
   setMessage(result + '，' + handDesc);
 
   /* Send showdown hands to everyone for reveal */
@@ -1113,7 +1272,7 @@ function hostShowdown() {
   render();
 
   /* Announce result */
-  broadcast({ type: 'hand_result', message: result + '，' + handDesc });
+  broadcast({ type: 'hand_result', message: result + '，牌型 ' + handDesc });
   DOM.nextHandBtn.classList.remove('hidden');
   DOM.startBtn.classList.add('hidden');
   hideActions();
@@ -1133,10 +1292,10 @@ function endHand(winner, reason) {
 
   if (winner) {
     winner.chips += G.pot;
-    const msg = reason + winner.name + ' 赢得 ' + G.pot;
-    log(msg);
+    const msg = reason + winner.name + ' 赢得 ' + fmtChips(G.pot);
+    log(msg, false, true);
     setMessage(winner.name + ' 赢得本局');
-    broadcast({ type: 'hand_result', message: msg });
+    broadcast({ type: 'hand_result', message: reason + winner.name + ' 赢得 ' + fmtChips(G.pot) });
   }
 
   hideActions();
@@ -1171,16 +1330,10 @@ function hostNextHand() {
   if (!G.isHost) return;
   clearTimeout(G.autoNextHandTimer);
   DOM.nextHandBtn.classList.add('hidden');
-  DOM.startBtn.classList.remove('hidden');
 
   /* Rotate dealer */
   G.dealerPos = (G.dealerPos + 1) % MAX_PLAYERS;
-  /* Replenish busted players */
-  for (const pl of G.players) {
-    if (pl.chips <= 0) pl.chips = 1000;
-  }
 
-  G.phase = 'lobby';
   G.communityCards = [];
   G.pot = 0;
   G.currentTurn = -1;
@@ -1197,6 +1350,14 @@ function hostNextHand() {
     pl.totalBetHand = 0;
   }
 
+  const playable = countPlayablePlayers();
+  if (playable >= 2) {
+    hostStartGame();
+    return;
+  }
+
+  G.phase = 'lobby';
+  DOM.startBtn.classList.remove('hidden');
   broadcast({ type: 'next_hand', state: exportState() });
   render();
   setMessage('准备开始新局');
@@ -1259,6 +1420,32 @@ function initUI() {
   DOM.raiseSlider.addEventListener('input', () => {
     DOM.raiseAmount.textContent = DOM.raiseSlider.value;
   });
+
+  /* Settings panel */
+  DOM.settingsBtn.addEventListener('click', toggleSettingsPanel);
+  DOM.closeSettingsBtn.addEventListener('click', () => DOM.settingsPanel.classList.add('hidden'));
+  DOM.applySettingsBtn.addEventListener('click', () => {
+    const sb = parseInt(DOM.sbSetting.value, 10);
+    const bb = parseInt(DOM.bbSetting.value, 10);
+    const rebuy = parseInt(DOM.rebuySetting.value, 10);
+    if (isNaN(sb) || isNaN(bb) || isNaN(rebuy)) {
+      DOM.settingsError.textContent = '请输入有效的数字';
+      DOM.settingsError.classList.remove('hidden');
+      return;
+    }
+    if (sb < 2) { DOM.settingsError.textContent = '小盲不能低于 2'; DOM.settingsError.classList.remove('hidden'); return; }
+    if (sb > 500) { DOM.settingsError.textContent = '小盲不能超过 500'; DOM.settingsError.classList.remove('hidden'); return; }
+    if (bb < sb * 2) { DOM.settingsError.textContent = '大盲至少为小盲的2倍'; DOM.settingsError.classList.remove('hidden'); return; }
+    if (bb > 5000) { DOM.settingsError.textContent = '大盲不能超过 5000'; DOM.settingsError.classList.remove('hidden'); return; }
+    if (rebuy < 20) { DOM.settingsError.textContent = '买入筹码不能少于 20'; DOM.settingsError.classList.remove('hidden'); return; }
+    if (rebuy > 100000) { DOM.settingsError.textContent = '买入不能超过 100000'; DOM.settingsError.classList.remove('hidden'); return; }
+    DOM.settingsError.classList.add('hidden');
+    hostUpdateSettings(sb, bb, rebuy);
+    DOM.settingsPanel.classList.add('hidden');
+  });
+
+  /* Rebuy */
+  DOM.rebuyBtn.addEventListener('click', sendRebuyRequest);
 }
 
 // ==================== URL PARSE & INIT ====================
